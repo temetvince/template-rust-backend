@@ -1,30 +1,50 @@
-use axum::Router;
-use sqlx::sqlite::SqlitePool;
-use tokio::sync::OnceCell;
-
-mod handlers;
-mod models;
+mod crud_service;
 mod db;
-
-use handlers::user_routes;
-
-type SharedConnection = SqlitePool;
-static DATABASE_URL: &str = "sqlite://DB.db";
-static DB_POOL: OnceCell<SharedConnection> = OnceCell::const_new();
+mod models;
 
 #[tokio::main]
 async fn main() {
-    let pool = SqlitePool::connect(DATABASE_URL).await.expect("Failed to connect to database");
-    sqlx::migrate!().run(&pool).await.expect("Failed to apply migrations");
+    // Example usage of the `CrudService`.
+    let crud_service = crud_service::CrudService::new().await;
 
-    DB_POOL.set(pool.clone()).expect("Failed to set DB pool");
+    // Create a new user.
+    let user = models::User {
+        id: None,
+        name: "Alice".to_string(),
+        email: "alice@example.com".to_string(),
+    };
 
-    let app = Router::new()
-        .merge(user_routes(pool.clone()))
-        .layer(tower_http::trace::TraceLayer::new_for_http());
-
-    axum::Server::bind(&"127.0.0.1:3000".parse().unwrap())
-        .serve(app.into_make_service())
+    crud_service
+        .create_user(&user)
         .await
-        .unwrap();
+        .expect("Failed to create user");
+
+    // Retrieve a user by ID.
+    if let Some(user) = crud_service.get_user(1).await.expect("Failed to get user") {
+        println!("User found: {:?}", user);
+    } else {
+        println!("User not found");
+    }
+
+    // List all users.
+    let users = crud_service.list_users().await.expect("Failed to list users");
+    println!("All users: {:?}", users);
+
+    // Update a user's information.
+    let updated_user = models::User {
+        id: Some(1),
+        name: "Alice Smith".to_string(),
+        email: "alice.smith@example.com".to_string(),
+    };
+
+    crud_service
+        .update_user(&updated_user)
+        .await
+        .expect("Failed to update user");
+
+    // Delete a user.
+    crud_service
+        .delete_user(1)
+        .await
+        .expect("Failed to delete user");
 }
